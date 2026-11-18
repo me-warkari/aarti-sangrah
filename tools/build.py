@@ -27,6 +27,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from urllib.parse import quote as urlquote
 
 ROOT = Path(__file__).resolve().parent.parent   # repo root (aarti-sangrah/)
 TOOLS = ROOT / "tools"
@@ -35,6 +36,9 @@ SITE = ROOT / "site"
 REPO = "https://github.com/me-warkari/aarti-sangrah"
 ISSUES = REPO + "/issues/new"
 SITE_URL = "https://me-warkari.github.io/aarti-sangrah/"
+# Cloudflare Web Analytics beacon token (cookieless, anonymous pageviews).
+# Empty until the Web Analytics site is created; then fill in the token.
+CF_BEACON_TOKEN = ""
 
 DEV_DIGITS = "०१२३४५६७८९"
 
@@ -635,6 +639,13 @@ BASE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — आरती संग्रह</title>
 <meta name="description" content="{desc}">
+<link rel="canonical" href="{url}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="आरती संग्रह">
+<meta property="og:title" content="{title} — आरती संग्रह">
+<meta property="og:description" content="{desc}">
+<meta property="og:url" content="{url}">
+{beacon}
 <link rel="stylesheet" href="{prefix}assets/style.css">
 <script src="{prefix}assets/reader.js" defer></script>
 </head>
@@ -678,9 +689,25 @@ BASE = """<!DOCTYPE html>
 """
 
 
-def page(prefix: str, title: str, desc: str, body: str) -> str:
+def beacon() -> str:
+    """Cloudflare Web Analytics beacon (cookieless, anonymous). Empty until configured."""
+    if not CF_BEACON_TOKEN:
+        return ""
+    return ('<script defer src="https://static.cloudflareinsights.com/beacon.min.js" '
+            'data-cf-beacon=\'{"token": "' + CF_BEACON_TOKEN + '"}\'></script>')
+
+
+def share_link(title: str, url: str) -> str:
+    """One-tap WhatsApp share for a work — how devotional text spreads."""
+    text = urlquote(f"{title} — आरती संग्रह {url}")
+    return (f'<p class="share"><a href="https://wa.me/?text={text}">'
+            "WhatsApp वर पाठवा ↗</a></p>")
+
+
+def page(prefix: str, title: str, desc: str, body: str, url: str = "") -> str:
+    full = SITE_URL + url
     return BASE.format(prefix=prefix, title=esc(title), desc=esc(desc),
-                       body=body, repo=REPO)
+                       body=body, repo=REPO, url=full, beacon=beacon())
 
 
 def breadcrumb(prefix: str, crumbs):
@@ -772,7 +799,8 @@ def reading_page(work, loaded, prev_work, next_work) -> str:
             f"{esc(work['lang'])} · {esc(size_line(work, loaded))}</p>",
             f"<p class=\"source-line\">परवाना: {esc(loaded['licence'])} · "
             f"{esc(loaded['proofing'])} · "
-            f"<a href=\"{prefix}srot/{work['slug']}/index.html\">स्रोत, लेखक व तपासणी पहा</a></p>"]
+            f"<a href=\"{prefix}srot/{work['slug']}/index.html\">स्रोत, लेखक व तपासणी पहा</a></p>",
+            share_link(work["title"], SITE_URL + f"aarti/{work['slug']}/")]
     for d in loaded["disclaimers"]:
         head.append(f'<section class="disclaimer" aria-label="टीप"><h2>टीप</h2><p>{esc(d)}</p></section>')
     if work.get("status_note"):
@@ -800,7 +828,7 @@ def reading_page(work, loaded, prev_work, next_work) -> str:
                 '</section>')
     return page(prefix, work["title"],
                 f"{work['title']} — {work['deity']}, {work['author']}. {size_line(work, loaded)}.",
-                "\n".join(body))
+                "\n".join(body), url=f"aarti/{work['slug']}/index.html")
 
 
 def write(path: Path, text: str):
@@ -855,7 +883,8 @@ def main() -> int:
                 + render_source_md(work["slug"]))
         write(SITE / "srot" / work["slug"] / "index.html",
               page("../../", f"स्रोत — {work['title']}",
-                   f"{work['title']} — लेखक, स्रोत, परवाना व तपासणी.", body))
+                   f"{work['title']} — लेखक, स्रोत, परवाना व तपासणी.", body,
+                   url=f"srot/{work['slug']}/index.html"))
 
     # ---- deity index + deity pages
     chips = "".join(
@@ -876,7 +905,8 @@ def main() -> int:
         + "<h1>देवतेनुसार शोधा</h1>"
         + "<p>ज्या देवतेची आरती गायची आहे, ती निवडा. प्रत्येक देवतेच्या पानावर "
         + "तिच्या आरत्या गायल्या जाणाऱ्या क्रमाने दिल्या आहेत.</p>"
-        + cards))
+        + cards,
+        url="devata/index.html"))
     for slug, name, blurb in DEITIES:
         ws = [w for w in WORKS if w["deity_slug"] == slug]
         lis = "".join(
@@ -889,7 +919,8 @@ def main() -> int:
             breadcrumb("../../", [("देवता", "../index.html"), (name, None)])
             + f"<h1>{esc(name)}</h1><p>{esc(blurb)}</p>"
             + f'<ul class="worklist">{lis}</ul>'
-            + '<p><a href="../index.html">← सर्व देवता</a></p>'))
+            + '<p><a href="../index.html">← सर्व देवता</a></p>',
+            url=f"devata/{slug}/index.html"))
 
     # ---- occasion index + pages
     write(SITE / "prasang" / "index.html", page(
@@ -900,7 +931,8 @@ def main() -> int:
         + "".join(
             f'<div class="grouplist"><h3><a href="{slug}/index.html">{name}</a></h3>'
             f'<p>{blurb}</p></div>'
-            for slug, name, blurb in OCCASIONS)))
+            for slug, name, blurb in OCCASIONS),
+        url="prasang/index.html"))
     for slug, name, blurb in OCCASIONS:
         ws = [w for w in WORKS if slug in w["occasions"]]
         lis = "".join(
@@ -913,7 +945,8 @@ def main() -> int:
             breadcrumb("../../", [("प्रसंग", "../index.html"), (name, None)])
             + f"<h1>{esc(name)}</h1><p>{esc(blurb)}</p>"
             + f'<ul class="worklist">{lis}</ul>'
-            + '<p><a href="../index.html">← सर्व प्रसंग</a></p>'))
+            + '<p><a href="../index.html">← सर्व प्रसंग</a></p>',
+            url=f"prasang/{slug}/index.html"))
 
     # ---- saint index + pages
     write(SITE / "sant" / "index.html", page(
@@ -925,7 +958,8 @@ def main() -> int:
         + "".join(
             f'<div class="grouplist"><h3><a href="{slug}/index.html">{name}</a> '
             f'<span class="meta">({dates})</span></h3></div>'
-            for slug, name, dates in SAINTS)))
+            for slug, name, dates in SAINTS),
+        url="sant/index.html"))
     for slug, name, dates in SAINTS:
         ws = [w for w in WORKS if slug in w["saints"]]
         if not ws:
@@ -939,7 +973,8 @@ def main() -> int:
             breadcrumb("../../", [("संत", "../index.html"), (name, None)])
             + f"<h1>{esc(name)}</h1><p>{esc(dates)}</p>"
             + f'<ul class="worklist">{lis}</ul>'
-            + '<p><a href="../index.html">← सर्व संत</a></p>'))
+            + '<p><a href="../index.html">← सर्व संत</a></p>',
+            url=f"sant/{slug}/index.html"))
 
     # ---- Hindi section
     hindi = [w for w in WORKS if w["lang"].startswith("हिंदी") or w["cat"] == "hindi"]
@@ -950,7 +985,8 @@ def main() -> int:
         + "<h1>हिंदी आरत्या</h1>"
         + "<p>या आरत्या हिंदी भाषेत आहेत, मराठीत नाहीत — त्या तशा प्रत्येक पानावर "
         + "नोंदवल्या आहेत. महाराष्ट्रात त्या मराठी आरत्यांबरोबरच गायल्या जातात.</p>"
-        + f'<div class="cards">{cards}</div>'))
+        + f'<div class="cards">{cards}</div>',
+        url="hindi/index.html"))
 
     # ---- home
     weekday = datetime.date.today().weekday()
@@ -985,10 +1021,10 @@ def main() -> int:
         'प्रत्येक आरतीचा मजकूर युनिकोड देवनागरीत, स्रोत व परवान्यासह दिला आहे. '
         'अर्थ, भाष्य, भाषांतर किंवा कृत्रिम अर्थ येथे नाहीत. मजकूर तपासणीच्या प्रतीक्षेत आहे — '
         'चूक आढळल्यास प्रत्येक पानावरची “चूक नोंदवा” जोडणी वापरा.</p>'
-        '<p>जाहिराती नाहीत, मागोवा नाही, खाते लागत नाही.</p></section>')
+        '<p>जाहिराती नाहीत, खाते लागत नाही. भेटींची मोजणी कुकीशिवाय व निनावी — फक्त आमच्या माहितीसाठी.</p></section>')
     write(SITE / "index.html", page(
         "", "मुख्य", "आरती संग्रह — मराठी व हिंदी आरत्या, मूळ मजकूर, मोफत.",
-        home_body))
+        home_body, url=""))
 
     # ---- about / vishayi
     write(SITE / "vishayi" / "index.html", page(
@@ -1037,7 +1073,8 @@ def main() -> int:
         "<p>मजकूर <code>content/</code> मधील साध्या मजकूर फाइल्समध्ये आहे. "
         "<code>tools/build.py</code> ही साधी Python स्क्रिप्ट त्यांतून साधी HTML पाने तयार करते — "
         "कोणतेही फ्रेमवर्क नाही, वाचण्यासाठी JavaScript लागत नाही, अक्षरे संकेतस्थळावरच "
-        "ठेवलेली आहेत (Tiro Devanagari Marathi व Mukta, SIL Open Font License).</p>"))
+        "ठेवलेली आहेत (Tiro Devanagari Marathi व Mukta, SIL Open Font License).</p>",
+        url="vishayi/index.html"))
 
     # ---- search index + search page
     index = []
@@ -1067,7 +1104,27 @@ def main() -> int:
         "देवता व प्रसंग यांच्या जोडण्यांनी वाचता येते.)</p>"
         + '<p><label>शोधा: <input id="q" type="search" placeholder="उदा. गणेश, रामदास, सुखकर्ता" size="30"></label></p>'
         + '<div id="results"><p>शोध सुरू करण्यासाठी वर शब्द लिहा.</p></div>'
-        + '<script src="../assets/search.js" defer></script>'))
+        + '<script src="../assets/search.js" defer></script>',
+        url="shodh/index.html"))
+    # ---- sitemap + robots (reach: let search engines find every page)
+    urls = []
+    for p in sorted(SITE.rglob("*.html")):
+        rel = p.relative_to(SITE).as_posix()
+        if rel == "index.html":
+            loc = SITE_URL
+        elif rel.endswith("/index.html"):
+            loc = SITE_URL + rel[:-len("index.html")]
+        else:
+            loc = SITE_URL + rel
+        urls.append(loc)
+    sitemap = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+               '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+               + "".join(f"  <url><loc>{u}</loc></url>\n" for u in urls)
+               + "</urlset>\n")
+    write(SITE / "sitemap.xml", sitemap)
+    write(SITE / "robots.txt",
+          f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}sitemap.xml\n")
+    print(f"sitemap: {len(urls)} urls")
     print(f"search index: {len(index)} entries, {len(WORKS)} works")
     print("done.")
     return 0
